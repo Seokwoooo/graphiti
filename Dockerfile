@@ -92,4 +92,4 @@ ENV PORT=8000
 EXPOSE $PORT
 
 # Use uv run for execution
-CMD ["uv", "run", "uvicorn", "graph_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uv run --directory /app/mcp_server graphiti_mcp_server.py --transport sse --host 0.0.0.0 --port $PORT --model gpt-4o-mini --group-id apa"]
