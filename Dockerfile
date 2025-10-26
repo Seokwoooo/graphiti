@@ -97,4 +97,4 @@ EXPOSE 8000
 #      - $PORT 환경변수 치환
 #      - uv run 명령을 쉘 경유로 실행
 ########################################
-CMD ["sh", "-c", "uv run --directory /app/mcp_server python -m mcp_server.graphiti_mcp_server --transport sse --group-id apa-project --model gpt-4o-mini"]
+CMD ["sh", "-c", "uv run --directory /app/mcp_server graphiti_mcp_server.py --transport sse --group-id apa-project --model gpt-4o-mini --temperature 0.0"]
