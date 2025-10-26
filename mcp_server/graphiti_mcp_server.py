@@ -123,12 +123,10 @@ class Procedure(BaseModel):
     )
 
 
-# NOTE: 타입 힌트를 dict[str, type[BaseModel]] 로 바꿔서
-# Pylance 경고 ("dict[str, BaseModel]은 dict[str, type[BaseModel]]에 할당 불가") 없앰.
-ENTITY_TYPES: dict[str, type[BaseModel]] = {
-    'Requirement': Requirement,  # pydantic model class
-    'Preference': Preference,    # pydantic model class
-    'Procedure': Procedure,      # pydantic model class
+ENTITY_TYPES: dict[str, BaseModel] = {
+    'Requirement': Requirement,  # type: ignore
+    'Preference': Preference,  # type: ignore
+    'Procedure': Procedure,  # type: ignore
 }
 
 
@@ -469,7 +467,6 @@ class Neo4jConfig(BaseModel):
             password=os.environ.get('NEO4J_PASSWORD', 'password'),
         )
 
-
 class FalkorConfig(BaseModel):
     """Configuration for FalkorDB database connection."""
 
@@ -485,7 +482,6 @@ class FalkorConfig(BaseModel):
         user = os.environ.get('FALKORDB_USER', '')
         password = os.environ.get('FALKORDB_PASSWORD', '')
         return cls(host=host, port=port, user=user, password=password)
-
 
 class GraphitiConfig(BaseModel):
     """Configuration for Graphiti client.
@@ -505,39 +501,16 @@ class GraphitiConfig(BaseModel):
 
     @classmethod
     def from_env(cls) -> 'GraphitiConfig':
-        """Create a configuration instance from environment variables.
-
-        여기서 DEFAULT_GROUP_ID 또는 GROUP_ID 환경변수를 읽어서
-        기본 group_id로 세팅한다. (apa-project 자동 주입 지점)
-
-        우선순위:
-        1. DEFAULT_GROUP_ID
-        2. GROUP_ID
-        3. None
-        """
+        """Create a configuration instance from environment variables."""
         db_type = os.environ.get('DATABASE_TYPE')
         if not db_type:
-            raise ValueError(
-                'DATABASE_TYPE environment variable must be set (e.g., "neo4j" or "falkordb")'
-            )
-
-        # decide default group (apa-project in Render)
-        default_group_id = (
-            os.environ.get('DEFAULT_GROUP_ID')
-            or os.environ.get('GROUP_ID')
-            or None
-        )
-        if default_group_id is not None:
-            cleaned = default_group_id.strip()
-            default_group_id = cleaned if cleaned else None
-
+            raise ValueError('DATABASE_TYPE environment variable must be set (e.g., "neo4j" or "falkordb")')
         if db_type == 'neo4j':
             return cls(
                 llm=GraphitiLLMConfig.from_env(),
                 embedder=GraphitiEmbedderConfig.from_env(),
                 neo4j=Neo4jConfig.from_env(),
                 database_type=db_type,
-                group_id=default_group_id,
             )
         elif db_type == 'falkordb':
             return cls(
@@ -545,39 +518,29 @@ class GraphitiConfig(BaseModel):
                 embedder=GraphitiEmbedderConfig.from_env(),
                 falkordb=FalkorConfig.from_env(),
                 database_type=db_type,
-                group_id=default_group_id,
             )
         else:
             raise ValueError(f'Unsupported DATABASE_TYPE: {db_type}')
 
     @classmethod
     def from_cli_and_env(cls, args: argparse.Namespace) -> 'GraphitiConfig':
-        """Create configuration from CLI arguments, falling back to environment variables.
+        """Create configuration from CLI arguments, falling back to environment variables."""
+        # Start with environment configuration
+        config = cls.from_env()
 
-        우선 env 기반 설정(from_env)을 불러오고,
-        CLI 인자가 있으면 그걸로 override 한다.
-
-        group_id 우선순위:
-        1. CLI --group-id
-        2. DEFAULT_GROUP_ID / GROUP_ID (from_env 에서 세팅됨)
-        3. 없으면 "default"
-        """
-        cfg = cls.from_env()
-
-        cli_group_id = getattr(args, 'group_id', None)
-        if cli_group_id:
-            cfg.group_id = cli_group_id
+        # Apply CLI overrides
+        if args.group_id:
+            config.group_id = args.group_id
         else:
-            if not cfg.group_id:
-                cfg.group_id = 'default'
+            config.group_id = 'default'
 
-        cfg.use_custom_entities = getattr(args, 'use_custom_entities', False)
-        cfg.destroy_graph = getattr(args, 'destroy_graph', False)
+        config.use_custom_entities = args.use_custom_entities
+        config.destroy_graph = args.destroy_graph
 
-        # LLM 설정은 CLI 인자가 우선
-        cfg.llm = GraphitiLLMConfig.from_cli_and_env(args)
+        # Update LLM config using CLI args
+        config.llm = GraphitiLLMConfig.from_cli_and_env(args)
 
-        return cfg
+        return config
 
 
 class MCPConfig(BaseModel):
@@ -659,9 +622,7 @@ async def initialize_graphiti():
             raise ValueError('NEO4J_URI, NEO4J_USER, and NEO4J_PASSWORD must be set')
 
         # Validate FalkorDB configuration
-        if config.database_type == 'falkordb' and (
-            not config.falkordb.host or not config.falkordb.port
-        ):
+        if config.database_type == 'falkordb' and (not config.falkordb.host or not config.falkordb.port):
             raise ValueError('FALKORDB_HOST and FALKORDB_PORT must be set for FalkorDB')
 
         embedder_client = config.embedder.create_client()
@@ -676,7 +637,6 @@ async def initialize_graphiti():
             )
         elif config.database_type == 'falkordb':
             from graphiti_core.driver.falkordb_driver import FalkorDriver
-
             host = config.falkordb.host if hasattr(config.falkordb, 'host') else 'localhost'
             port = int(config.falkordb.port) if hasattr(config.falkordb, 'port') else 6379
             username = config.falkordb.user or None
@@ -838,7 +798,7 @@ async def add_memory(
         # Adding message-style content
         add_memory(
             name="Customer Conversation",
-            episode_body="user: What's your return policy?\\nassistant: You can return items within 30 days.",
+            episode_body="user: What's your return policy?\nassistant: You can return items within 30 days.",
             source="message",
             source_description="chat transcript",
             group_id="some_arbitrary_string"
@@ -1181,9 +1141,7 @@ async def get_episodes(
         client = cast(Graphiti, graphiti_client)
 
         episodes = await client.retrieve_episodes(
-            group_ids=[effective_group_id],
-            last_n=last_n,
-            reference_time=datetime.now(timezone.utc),
+            group_ids=[effective_group_id], last_n=last_n, reference_time=datetime.now(timezone.utc)
         )
 
         if not episodes:
@@ -1247,21 +1205,17 @@ async def get_status() -> StatusResponse:
         client = cast(Graphiti, graphiti_client)
 
         # Test database connection
-        await client.driver.health_check()  # type: ignore
+        await client.driver.health_check() # type: ignore  # type: ignore
 
         return StatusResponse(
-            status='ok',
-            message=f'Graphiti MCP server is running and connected to {config.database_type}',
+            status='ok', message=f'Graphiti MCP server is running and connected to {config.database_type}'
         )
     except Exception as e:
         error_msg = str(e)
         logger.error(f'Error checking {config.database_type} connection: {error_msg}')
         return StatusResponse(
             status='error',
-            message=(
-                f'Graphiti MCP server is running but {config.database_type} connection failed: '
-                f'{error_msg}'
-            ),
+            message=f'Graphiti MCP server is running but Neo4j connection failed: {error_msg}',
         )
 
 
@@ -1323,13 +1277,11 @@ async def initialize_server() -> MCPConfig:
     # Build configuration from CLI arguments and environment variables
     config = GraphitiConfig.from_cli_and_env(args)
 
-    # Better logging for group_id origin
+    # Log the group ID configuration
     if args.group_id:
         logger.info(f'Using provided group_id: {config.group_id}')
-    elif config.group_id:
-        logger.info(f'Using default group_id from environment: {config.group_id}')
     else:
-        logger.info(f'Using fallback group_id: {config.group_id}')
+        logger.info(f'Generated random group_id: {config.group_id}')
 
     # Log entity extraction configuration
     if config.use_custom_entities:
@@ -1359,7 +1311,7 @@ async def run_mcp_server():
     # Initialize the server
     mcp_config = await initialize_server()
 
-    # Run the server with stdio or sse transport for MCP in the same event loop
+    # Run the server with stdio transport for MCP in the same event loop
     logger.info(f'Starting MCP server with transport: {mcp_config.transport}')
     if mcp_config.transport == 'stdio':
         await mcp.run_stdio_async()
